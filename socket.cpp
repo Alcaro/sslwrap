@@ -31,15 +31,8 @@
 #endif
 
 
+#include "socketcls.h"
 
-struct SocketCore {
-	int fd;//for select()
-	bool (*isActive)(SocketCore * thisCore, bool selected);
-	//bool (*isOpen)(SocketCore * thisCore);
-	int (*read)(SocketCore * thisCore, char * buf, int len);
-	void (*write)(SocketCore * thisCore, const char * buf, int len, bool instant);
-	void (*close)(SocketCore * thisCore);
-};
 
 /*
 	core->write=[](SocketCore * thisCore, const char * data, int len)
@@ -110,7 +103,7 @@ static bool initialized=false;
 
 
 
-static void initialize()
+void initialize()
 {
 	if (initialized) return;
 	initialized=true;
@@ -234,7 +227,7 @@ static void SetSocketVTableNull(SocketCore * core)
 	};
 }
 
-static SocketCore * NewRawConnection(const char * host, int port, int bytes=sizeof(SocketCore))
+SocketCore * NewRawConnection(const char * host, int port, int bytes)
 {
 	initialize();
 	
