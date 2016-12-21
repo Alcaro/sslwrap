@@ -18,10 +18,10 @@
     <ClCompile Include="socket.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="test.cpp">
+    <ClCompile Include="socket-ssl-schannel.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="socket-ssl-schannel.cpp">
+    <ClCompile Include="testSrv.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

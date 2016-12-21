@@ -274,9 +274,13 @@ Socket SocketCreateSSL(const char * host, int port, bool permissive)
 	score->read=[](SocketCore * thisCore, char * data, int len)->int
 	{
 		SSLSocketCore * core=(SSLSocketCore*)thisCore;
-		if (core->fd==-1) return -1;
+		if (core->fd == -1) {
+			return -1;
+		}
 		int ret=core->sslsock.Receive(data, len);
-		if (ret<=0 || ret>9000) return -1;
+		if (ret <= 0 || ret > 9000) {
+			return -1;
+		}
 		return ret;
 	};
 	score->isActive=[](SocketCore * thisCore, bool selected)->bool
@@ -301,6 +305,60 @@ Socket SocketCreateSSL(const char * host, int port, bool permissive)
 	
 	return score;
 }
+
+Socket SocketCreateSSLSrv(const char * host, int port, bool permissive)
+{
+	/* create server socket bind */
+	SocketCore * core = (SocketCore*)SocketCreateListen(host, port);
+	if (!core) {
+		printf("No core\n");
+		return NULL;
+	}
+	SSLSocketCore * score = (SSLSocketCore*)malloc(sizeof(SSLSocketCore));
+	new(&score->sslsock) CSslSocket;
+	score->sslsock.sock = core;
+	score->fd = core->fd;
+
+	score->sslsock.Create(permissive,443U,0,"localhost");
+	score->sslsock.Accept(score->sslsock);
+
+	score->write = [](SocketCore * thisCore, const char * data, int len, bool instant)
+	{
+		SSLSocketCore * core = (SSLSocketCore*)thisCore;
+		if (core->fd == -1) return;
+		core->sslsock.Send(data, len);
+	};
+	score->read = [](SocketCore * thisCore, char * data, int len)->int
+	{
+		SSLSocketCore * core = (SSLSocketCore*)thisCore;
+		if (core->fd == -1) return -1;
+		int ret = core->sslsock.Receive(data, len);
+		if (ret <= 0 || ret>9000) return -1;
+		return ret;
+	};
+	score->isActive = [](SocketCore * thisCore, bool selected)->bool
+	{
+		SSLSocketCore * core = (SSLSocketCore*)thisCore;
+		if (core->fd == -1) return true;
+		return selected;
+	};
+	//core->isOpen=[](SocketCore * thisCore)->bool
+	//{
+	//	SocketCore * core=(SocketCore*)thisCore;
+	//	return (core->fd!=-1);
+	//};
+	score->close = [](SocketCore * thisCore)
+	{
+		SSLSocketCore * core = (SSLSocketCore*)thisCore;
+		if (core->fd == -1) return;
+		core->sslsock.~CSslSocket();
+		//close(core->fd);//done by child destructors
+		core->fd = -1;
+	};
+
+	return score;
+}
+
 
 CSocket::CSocket()
 {
@@ -544,12 +602,12 @@ int CSslSocket::Receive(void* lpBuf, int nBufLen, int nFlags)
 		if (m_dwReceiveBuf) {
 			if ((DWORD)nBufLen < m_dwReceiveBuf) {
 				rc = nBufLen;
-				CopyMemory(lpBuf,m_pbReceiveBuf,rc);
-				MoveMemory(m_pbReceiveBuf,m_pbReceiveBuf+rc,m_dwReceiveBuf-rc);
+				CopyMemory(lpBuf, m_pbReceiveBuf, rc);
+				MoveMemory(m_pbReceiveBuf, m_pbReceiveBuf+rc, m_dwReceiveBuf-rc);
 				m_dwReceiveBuf -= rc;
 			} else {
 				rc = m_dwReceiveBuf;
-				CopyMemory(lpBuf,m_pbReceiveBuf,rc);
+				CopyMemory(lpBuf, m_pbReceiveBuf, rc);
 				delete [] m_pbReceiveBuf;
 				m_pbReceiveBuf = NULL;
 				m_dwReceiveBuf = 0;
@@ -941,7 +999,6 @@ SECURITY_STATUS CSslSocket::ServerCreateCredentials(const TCHAR * pszUserName, P
 
 		if(Status != SEC_E_OK) {
 			SetLastError(Status);
-			Status = Status;
 			break;
 		}
 
@@ -960,7 +1017,7 @@ BOOL CSslSocket::ClientConnect(const TCHAR *szHostName)
 		if(ClientCreateCredentials(LPCTSTR(m_CsCertName), &m_hCreds)) {
 			break;
 		}
-
+		ZeroMemory(&ExtraData, sizeof(ExtraData));
 		if(FAILED(ClientHandshake(&m_hCreds,szHostName,&m_hContext,&ExtraData))) {
 			break;
 		}
