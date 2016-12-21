@@ -7,6 +7,8 @@
 #include <security.h>
 //#include <sspi.h>
 #include <tchar.h>
+#include "socket.h"
+#include "socketcls.h"
 
 #define CERT_RDN_ANY_TYPE                0
 #define CERT_RDN_ENCODED_BLOB            1
@@ -27,31 +29,31 @@
 #define CERT_RDN_UNICODE_STRING          12
 #define CERT_RDN_UTF8_STRING             13
 
-typedef struct _CERT_RDN_ATTR {
+/*typedef struct _CERT_RDN_ATTR {
   LPSTR               pszObjId;
   DWORD               dwValueType;
   CERT_RDN_VALUE_BLOB Value;
-} CERT_RDN_ATTR, *PCERT_RDN_ATTR;
+} CERT_RDN_ATTR, *PCERT_RDN_ATTR;*/
 
-typedef struct _CERT_RDN {
+/*typedef struct _CERT_RDN {
   DWORD          cRDNAttr;
   PCERT_RDN_ATTR rgRDNAttr;
-} CERT_RDN, *PCERT_RDN;
+} CERT_RDN, *PCERT_RDN;*/
 
-typedef struct _CERT_REVOCATION_STATUS {
+/*typedef struct _CERT_REVOCATION_STATUS {
   DWORD cbSize;
   DWORD dwIndex;
   DWORD dwError;
   DWORD dwReason;
   BOOL  fHasFreshnessTime;
   DWORD dwFreshnessTime;
-} CERT_REVOCATION_STATUS, *PCERT_REVOCATION_STATUS;
+} CERT_REVOCATION_STATUS, *PCERT_REVOCATION_STATUS;*/
 
 #define _In_
 #define _In_opt_
 #define _Inout_
 
-typedef struct _CERT_REVOCATION_CHAIN_PARA {
+/*typedef struct _CERT_REVOCATION_CHAIN_PARA {
   DWORD            cbSize;
   HCERTCHAINENGINE hChainEngine;
   HCERTSTORE       hAdditionalStore;
@@ -60,9 +62,9 @@ typedef struct _CERT_REVOCATION_CHAIN_PARA {
   LPFILETIME       pftCurrentTime;
   LPFILETIME       pftCacheResync;
   DWORD            cbMaxUrlRetrievalByteCount;
-} CERT_REVOCATION_CHAIN_PARA, *PCERT_REVOCATION_CHAIN_PARA;
+} CERT_REVOCATION_CHAIN_PARA, *PCERT_REVOCATION_CHAIN_PARA;*/
 
-typedef struct _CERT_REVOCATION_PARA {
+/*typedef struct _CERT_REVOCATION_PARA {
   DWORD                       cbSize;
   PCCERT_CONTEXT              pIssuerCert;
   DWORD                       cCertStore;
@@ -76,7 +78,9 @@ typedef struct _CERT_REVOCATION_PARA {
   PCERT_REVOCATION_CRL_INFO   pCrlInfo;
   LPFILETIME                  pftCacheResync;
   PCERT_REVOCATION_CHAIN_PARA pChainPara;
-} CERT_REVOCATION_PARA, *PCERT_REVOCATION_PARA;
+} CERT_REVOCATION_PARA, *PCERT_REVOCATION_PARA;*/
+
+void initialize();
 
 #define CERT_CONTEXT_REVOCATION_TYPE        1
 #define CERT_VERIFY_REV_CHAIN_FLAG                  0x00000001
@@ -255,12 +259,13 @@ Socket SocketCreateSSL(const char * host, int port, bool permissive)
 	if (!score->sslsock.Connect(host, port))
 	{
 		score->sslsock.~CSslSocket();
-		close(score->fd);
+		score->close(score);
+		//close(score->fd);
 		free(score);
 		return NULL;
 	}
 	
-	score->write=[](SocketCore * thisCore, const char * data, int len)
+	score->write=[](SocketCore * thisCore, const char * data, int len, bool instant)
 	{
 		SSLSocketCore * core=(SSLSocketCore*)thisCore;
 		if (core->fd==-1) return;
@@ -269,9 +274,13 @@ Socket SocketCreateSSL(const char * host, int port, bool permissive)
 	score->read=[](SocketCore * thisCore, char * data, int len)->int
 	{
 		SSLSocketCore * core=(SSLSocketCore*)thisCore;
-		if (core->fd==-1) return -1;
+		if (core->fd == -1) {
+			return -1;
+		}
 		int ret=core->sslsock.Receive(data, len);
-		if (ret<=0 || ret>9000) return -1;
+		if (ret <= 0 || ret > 9000) {
+			return -1;
+		}
 		return ret;
 	};
 	score->isActive=[](SocketCore * thisCore, bool selected)->bool
@@ -296,6 +305,60 @@ Socket SocketCreateSSL(const char * host, int port, bool permissive)
 	
 	return score;
 }
+
+Socket SocketCreateSSLSrv(const char * host, int port, bool permissive)
+{
+	/* create server socket bind */
+	SocketCore * core = (SocketCore*)SocketCreateListen(host, port);
+	if (!core) {
+		printf("No core\n");
+		return NULL;
+	}
+	SSLSocketCore * score = (SSLSocketCore*)malloc(sizeof(SSLSocketCore));
+	new(&score->sslsock) CSslSocket;
+	score->sslsock.sock = core;
+	score->fd = core->fd;
+
+	score->sslsock.Create(permissive,443U,0,"localhost");
+	score->sslsock.Accept(score->sslsock);
+
+	score->write = [](SocketCore * thisCore, const char * data, int len, bool instant)
+	{
+		SSLSocketCore * core = (SSLSocketCore*)thisCore;
+		if (core->fd == -1) return;
+		core->sslsock.Send(data, len);
+	};
+	score->read = [](SocketCore * thisCore, char * data, int len)->int
+	{
+		SSLSocketCore * core = (SSLSocketCore*)thisCore;
+		if (core->fd == -1) return -1;
+		int ret = core->sslsock.Receive(data, len);
+		if (ret <= 0 || ret>9000) return -1;
+		return ret;
+	};
+	score->isActive = [](SocketCore * thisCore, bool selected)->bool
+	{
+		SSLSocketCore * core = (SSLSocketCore*)thisCore;
+		if (core->fd == -1) return true;
+		return selected;
+	};
+	//core->isOpen=[](SocketCore * thisCore)->bool
+	//{
+	//	SocketCore * core=(SocketCore*)thisCore;
+	//	return (core->fd!=-1);
+	//};
+	score->close = [](SocketCore * thisCore)
+	{
+		SSLSocketCore * core = (SSLSocketCore*)thisCore;
+		if (core->fd == -1) return;
+		core->sslsock.~CSslSocket();
+		//close(core->fd);//done by child destructors
+		core->fd = -1;
+	};
+
+	return score;
+}
+
 
 CSocket::CSocket()
 {
@@ -539,12 +602,12 @@ int CSslSocket::Receive(void* lpBuf, int nBufLen, int nFlags)
 		if (m_dwReceiveBuf) {
 			if ((DWORD)nBufLen < m_dwReceiveBuf) {
 				rc = nBufLen;
-				CopyMemory(lpBuf,m_pbReceiveBuf,rc);
-				MoveMemory(m_pbReceiveBuf,m_pbReceiveBuf+rc,m_dwReceiveBuf-rc);
+				CopyMemory(lpBuf, m_pbReceiveBuf, rc);
+				MoveMemory(m_pbReceiveBuf, m_pbReceiveBuf+rc, m_dwReceiveBuf-rc);
 				m_dwReceiveBuf -= rc;
 			} else {
 				rc = m_dwReceiveBuf;
-				CopyMemory(lpBuf,m_pbReceiveBuf,rc);
+				CopyMemory(lpBuf, m_pbReceiveBuf, rc);
 				delete [] m_pbReceiveBuf;
 				m_pbReceiveBuf = NULL;
 				m_dwReceiveBuf = 0;
@@ -754,7 +817,7 @@ BOOL CSslSocket::Connect(LPCTSTR lpszHostAddress, UINT nHostPort)
 	} else {
 		return FALSE;
 	}
-	__builtin_unreachable();
+	//__builtin_unreachable();
 }
 
 BOOL CSslSocket::Listen(int nConnectionBacklog/* = 5*/,BOOL bAuthClient/* = FALSE*/)
@@ -771,7 +834,7 @@ BOOL CSslSocket::Listen(int nConnectionBacklog/* = 5*/,BOOL bAuthClient/* = FALS
 	} else {
 		return CSocket::Listen(nConnectionBacklog);
 	}
-	__builtin_unreachable();
+	//__builtin_unreachable();
 }
 
 DWORD CSslSocket::GetLastError()
@@ -919,7 +982,7 @@ SECURITY_STATUS CSslSocket::ServerCreateCredentials(const TCHAR * pszUserName, P
 		m_SchannelCred.cCreds = 1;
 		m_SchannelCred.paCred = &m_pCertContext;
 		m_SchannelCred.hRootStore = m_hMyCertStore;
-		m_SchannelCred.dwMinimumCypherStrength = 80;
+		m_SchannelCred.dwMinimumCipherStrength = 80;
 		m_SchannelCred.grbitEnabledProtocols = m_dwProtocol;
 		m_SchannelCred.dwFlags |= SCH_CRED_NO_DEFAULT_CREDS | SCH_CRED_NO_SYSTEM_MAPPER | SCH_CRED_REVOCATION_CHECK_CHAIN;
 		
@@ -936,7 +999,6 @@ SECURITY_STATUS CSslSocket::ServerCreateCredentials(const TCHAR * pszUserName, P
 
 		if(Status != SEC_E_OK) {
 			SetLastError(Status);
-			Status = Status;
 			break;
 		}
 
@@ -955,7 +1017,7 @@ BOOL CSslSocket::ClientConnect(const TCHAR *szHostName)
 		if(ClientCreateCredentials(LPCTSTR(m_CsCertName), &m_hCreds)) {
 			break;
 		}
-
+		ZeroMemory(&ExtraData, sizeof(ExtraData));
 		if(FAILED(ClientHandshake(&m_hCreds,szHostName,&m_hContext,&ExtraData))) {
 			break;
 		}

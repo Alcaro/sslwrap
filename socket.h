@@ -10,6 +10,11 @@ Socket SocketCreate(const char * host, int port);
 //certificates.
 Socket SocketCreateSSL(const char * host, int port, bool permissive=false);
 
+//This one create and accept an encrypted connection. Usage rules are the same as NewConnection.
+//Note that SSL support may not be universally present. The permissive flag makes it accept invalid
+//certificates.
+Socket SocketCreateSSLSrv(const char * host, int port, bool permissive = false);
+
 //This one makes SocketGet always return whole lines from the returned socket, and appends a \r\n
 //(\n only if crlf is false) to every send operation. The input socket may not be used after that,
 //not even to close it; closing the returned socket will take care of that. It is valid to use this
